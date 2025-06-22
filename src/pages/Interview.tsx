@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Video, Mic, Square, Play, RotateCcw, ArrowRight, ArrowLeft, Camera, MicOff } from "lucide-react";
+import { Video, Square, RotateCcw, ArrowRight, ArrowLeft, Camera, CheckCircle, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -19,11 +19,12 @@ const InterviewPage = () => {
   const [hasRecorded, setHasRecorded] = useState<boolean[]>([]);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedVideos, setRecordedVideos] = useState<Blob[]>([]);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
+  const previewRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -31,7 +32,7 @@ const InterviewPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Sample AI-generated questions (in real app, these would come from backend)
+  // Sample AI-generated questions
   const questions: Question[] = [
     {
       id: 1,
@@ -57,16 +58,6 @@ const InterviewPage = () => {
       id: 5,
       text: "Where do you see yourself in the next 5 years?",
       category: "Career Goals"
-    },
-    {
-      id: 6,
-      text: "What are your greatest strengths and how do they apply to this position?",
-      category: "Strengths"
-    },
-    {
-      id: 7,
-      text: "Do you have any questions about the role or company culture?",
-      category: "Questions"
     }
   ];
 
@@ -74,6 +65,7 @@ const InterviewPage = () => {
     initializeRecording();
     setHasRecorded(new Array(questions.length).fill(false));
     setRecordedVideos(new Array(questions.length).fill(null));
+    setPreviewUrls(new Array(questions.length).fill(''));
   }, []);
 
   useEffect(() => {
@@ -141,7 +133,9 @@ const InterviewPage = () => {
       newHasRecorded[currentQuestion] = true;
       setHasRecorded(newHasRecorded);
       
-      setPreviewUrl(URL.createObjectURL(blob));
+      const newPreviewUrls = [...previewUrls];
+      newPreviewUrls[currentQuestion] = URL.createObjectURL(blob);
+      setPreviewUrls(newPreviewUrls);
     };
 
     recorder.start();
@@ -159,17 +153,29 @@ const InterviewPage = () => {
   };
 
   const retakeRecording = () => {
-    setPreviewUrl(null);
     const newHasRecorded = [...hasRecorded];
     newHasRecorded[currentQuestion] = false;
     setHasRecorded(newHasRecorded);
+    
+    const newPreviewUrls = [...previewUrls];
+    newPreviewUrls[currentQuestion] = '';
+    setPreviewUrls(newPreviewUrls);
+    
     setRecordingTime(0);
   };
 
   const nextQuestion = () => {
+    if (!hasRecorded[currentQuestion]) {
+      toast({
+        title: "Recording required",
+        description: "Please record your answer before moving to the next question",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     if (currentQuestion < questions.length - 1) {
       setCurrentQuestion(currentQuestion + 1);
-      setPreviewUrl(null);
       setRecordingTime(0);
     }
   };
@@ -177,7 +183,6 @@ const InterviewPage = () => {
   const previousQuestion = () => {
     if (currentQuestion > 0) {
       setCurrentQuestion(currentQuestion - 1);
-      setPreviewUrl(null);
       setRecordingTime(0);
     }
   };
@@ -193,7 +198,7 @@ const InterviewPage = () => {
       return;
     }
 
-    // Store interview data (will be replaced with Supabase)
+    // Store interview data
     const interviewData = {
       candidateId: location.state?.candidateId || 'TEMP_ID',
       completedAt: new Date().toISOString(),
@@ -221,10 +226,12 @@ const InterviewPage = () => {
 
   const progress = ((currentQuestion + 1) / questions.length) * 100;
   const completedAnswers = hasRecorded.filter(Boolean).length;
+  const allQuestionsCompleted = completedAnswers === questions.length;
+  const canMoveNext = hasRecorded[currentQuestion] || currentQuestion === questions.length - 1;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 text-white p-4">
-      <div className="container mx-auto max-w-4xl py-8">
+      <div className="container mx-auto max-w-6xl py-8">
         {/* Header */}
         <div className="text-center mb-8 animate-fade-in">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent mb-4">
@@ -233,18 +240,30 @@ const InterviewPage = () => {
           <div className="flex items-center justify-center space-x-6 text-gray-400">
             <span>Question {currentQuestion + 1} of {questions.length}</span>
             <span>•</span>
-            <span>{completedAnswers} completed</span>
+            <span>{completedAnswers}/{questions.length} completed</span>
           </div>
         </div>
 
         {/* Progress Bar */}
         <div className="mb-8">
-          <Progress value={progress} className="bg-gray-700 h-2" />
+          <Progress value={progress} className="bg-gray-700 h-3" />
+          <div className="flex justify-between mt-2 text-sm text-gray-400">
+            {questions.map((_, index) => (
+              <div key={index} className="flex flex-col items-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold 
+                  ${index < currentQuestion ? 'bg-green-500 text-white' : 
+                    index === currentQuestion ? 'bg-blue-500 text-white' : 
+                    'bg-gray-600 text-gray-400'}`}>
+                  {hasRecorded[index] ? <CheckCircle className="w-4 h-4" /> : index + 1}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Question Card */}
-          <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm">
+          <Card className="bg-gray-800/50 border-gray-700 backdrop-blur-sm h-fit">
             <CardHeader>
               <CardTitle className="flex items-center justify-between text-white">
                 <span className="flex items-center">
@@ -256,10 +275,12 @@ const InterviewPage = () => {
                 </span>
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className="text-lg text-gray-200 leading-relaxed mb-6">
-                {questions[currentQuestion].text}
-              </p>
+            <CardContent className="space-y-6">
+              <div className="bg-gray-900/50 p-6 rounded-lg border border-gray-600">
+                <p className="text-lg text-gray-200 leading-relaxed">
+                  {questions[currentQuestion].text}
+                </p>
+              </div>
               
               {/* Navigation Buttons */}
               <div className="flex justify-between">
@@ -275,9 +296,8 @@ const InterviewPage = () => {
                 
                 <Button
                   onClick={nextQuestion}
-                  disabled={currentQuestion === questions.length - 1}
-                  variant="outline"
-                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
+                  disabled={currentQuestion === questions.length - 1 || !hasRecorded[currentQuestion]}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
                 >
                   Next
                   <ArrowRight className="w-4 h-4 ml-2" />
@@ -302,22 +322,34 @@ const InterviewPage = () => {
                 )}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden mb-4 relative">
+            <CardContent className="space-y-6">
+              <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden relative">
                 {permissionsGranted ? (
                   <>
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                    {previewUrl && !isRecording && (
+                    {/* Live camera feed */}
+                    {!hasRecorded[currentQuestion] && (
                       <video
-                        src={previewUrl}
-                        controls
-                        className="absolute inset-0 w-full h-full object-cover bg-black"
+                        ref={videoRef}
+                        autoPlay
+                        muted
+                        className="w-full h-full object-cover"
                       />
+                    )}
+                    
+                    {/* Preview of recorded video */}
+                    {hasRecorded[currentQuestion] && previewUrls[currentQuestion] && (
+                      <video
+                        src={previewUrls[currentQuestion]}
+                        controls
+                        className="w-full h-full object-cover bg-black"
+                      />
+                    )}
+                    
+                    {/* Recording indicator overlay */}
+                    {isRecording && (
+                      <div className="absolute top-4 left-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold animate-pulse">
+                        REC {formatTime(recordingTime)}
+                      </div>
                     )}
                   </>
                 ) : (
@@ -325,6 +357,12 @@ const InterviewPage = () => {
                     <div className="text-center">
                       <Camera className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                       <p className="text-gray-400">Camera access required</p>
+                      <Button 
+                        onClick={initializeRecording}
+                        className="mt-4 bg-purple-500 hover:bg-purple-600"
+                      >
+                        Grant Access
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -332,11 +370,11 @@ const InterviewPage = () => {
 
               {/* Recording Controls */}
               <div className="flex items-center justify-center space-x-4">
-                {!isRecording && !hasRecorded[currentQuestion] && (
+                {!isRecording && !hasRecorded[currentQuestion] && permissionsGranted && (
                   <Button
                     onClick={startRecording}
-                    disabled={!permissionsGranted}
-                    className="bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-full 
+                    size="lg"
+                    className="bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-full 
                       transition-all duration-300 hover:scale-105"
                   >
                     <Video className="w-5 h-5 mr-2" />
@@ -347,7 +385,8 @@ const InterviewPage = () => {
                 {isRecording && (
                   <Button
                     onClick={stopRecording}
-                    className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-3 rounded-full"
+                    size="lg"
+                    className="bg-gray-700 hover:bg-gray-600 text-white px-8 py-4 rounded-full"
                   >
                     <Square className="w-5 h-5 mr-2" />
                     Stop Recording
@@ -355,7 +394,11 @@ const InterviewPage = () => {
                 )}
 
                 {hasRecorded[currentQuestion] && !isRecording && (
-                  <div className="flex space-x-3">
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center text-green-400 bg-green-500/20 px-4 py-2 rounded-full">
+                      <CheckCircle className="w-5 h-5 mr-2" />
+                      <span className="font-semibold">Recorded Successfully</span>
+                    </div>
                     <Button
                       onClick={retakeRecording}
                       variant="outline"
@@ -364,24 +407,34 @@ const InterviewPage = () => {
                       <RotateCcw className="w-4 h-4 mr-2" />
                       Retake
                     </Button>
-                    <div className="flex items-center text-green-400">
-                      <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
-                      Recorded
-                    </div>
                   </div>
                 )}
               </div>
+
+              {/* Status Message */}
+              {!hasRecorded[currentQuestion] && permissionsGranted && (
+                <div className="text-center p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                  <p className="text-yellow-400 font-medium">
+                    📹 Record your answer to proceed to the next question
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Submit Button */}
-        {completedAnswers === questions.length && (
-          <div className="text-center mt-8">
+        {allQuestionsCompleted && (
+          <div className="text-center mt-12 animate-fade-in">
+            <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-6 mb-6">
+              <h3 className="text-xl font-bold text-green-400 mb-2">🎉 All Questions Completed!</h3>
+              <p className="text-gray-300">You've successfully recorded answers to all questions. Ready to submit?</p>
+            </div>
             <Button
               onClick={submitInterview}
+              size="lg"
               className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 
-                text-white px-8 py-4 text-lg font-semibold rounded-full transition-all duration-300 
+                text-white px-12 py-4 text-lg font-semibold rounded-full transition-all duration-300 
                 hover:scale-105 hover:shadow-xl hover:shadow-green-500/25 group"
             >
               <ArrowRight className="w-5 h-5 mr-2 group-hover:translate-x-1 transition-transform" />
