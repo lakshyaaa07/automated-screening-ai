@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { Video, Square, RotateCcw, ArrowRight, ArrowLeft, Camera, CheckCircle, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useInterview } from "@/context/InterviewContext";
 
 interface Question {
   id: number;
@@ -22,6 +22,7 @@ const InterviewPage = () => {
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -31,42 +32,14 @@ const InterviewPage = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Sample AI-generated questions
-  const questions: Question[] = [
-    {
-      id: 1,
-      text: "Tell me about yourself and your professional background.",
-      category: "General"
-    },
-    {
-      id: 2,
-      text: "What interests you most about this role and our company?",
-      category: "Motivation"
-    },
-    {
-      id: 3,
-      text: "Describe a challenging project you've worked on and how you overcame obstacles.",
-      category: "Problem Solving"
-    },
-    {
-      id: 4,
-      text: "How do you handle working under pressure and tight deadlines?",
-      category: "Work Style"
-    },
-    {
-      id: 5,
-      text: "Where do you see yourself in the next 5 years?",
-      category: "Career Goals"
-    }
-  ];
+  const { candidate, questions, recordedAnswers, setRecordedAnswers, setQuestions } = useInterview();
 
   useEffect(() => {
     initializeRecording();
     setHasRecorded(new Array(questions.length).fill(false));
     setRecordedVideos(new Array(questions.length).fill(null));
     setPreviewUrls(new Array(questions.length).fill(''));
-  }, []);
+  }, [questions.length]);
 
   useEffect(() => {
     if (isRecording && timerRef.current === null) {
@@ -85,6 +58,25 @@ const InterviewPage = () => {
     };
   }, [isRecording]);
 
+  useEffect(() => {
+    // If questions are not set, fetch them from the API
+    if ((!questions || questions.length === 0) && candidate?.candidateId) {
+      fetch(`http://127.0.0.1:5001/interview_results/${candidate.candidateId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.feedback && Array.isArray(data.feedback)) {
+            setQuestions(
+              data.feedback.map((item: any, idx: number) => ({
+                id: item.question_no || idx + 1,
+                text: item.question_text,
+                category: 'General',
+              }))
+            );
+          }
+        });
+    }
+  }, [candidate?.candidateId, questions, setQuestions]);
+
   const initializeRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -95,6 +87,7 @@ const InterviewPage = () => {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(e => console.error("Error playing video:", e));
       }
       setPermissionsGranted(true);
       
@@ -103,6 +96,7 @@ const InterviewPage = () => {
         description: "You can now start recording your answers",
       });
     } catch (error) {
+      console.error("Error accessing media devices:", error);
       toast({
         title: "Permission denied",
         description: "Please allow camera and microphone access to continue",
@@ -142,6 +136,12 @@ const InterviewPage = () => {
     setMediaRecorder(recorder);
     setIsRecording(true);
     setRecordingTime(0);
+
+    // Ensure video element shows live feed during recording
+    if (videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.muted = false; // Unmute during recording
+    }
   };
 
   const stopRecording = () => {
@@ -149,19 +149,12 @@ const InterviewPage = () => {
       mediaRecorder.stop();
       setIsRecording(false);
       setMediaRecorder(null);
+      
+      // Mute video after stopping recording
+      if (videoRef.current) {
+        videoRef.current.muted = true;
+      }
     }
-  };
-
-  const retakeRecording = () => {
-    const newHasRecorded = [...hasRecorded];
-    newHasRecorded[currentQuestion] = false;
-    setHasRecorded(newHasRecorded);
-    
-    const newPreviewUrls = [...previewUrls];
-    newPreviewUrls[currentQuestion] = '';
-    setPreviewUrls(newPreviewUrls);
-    
-    setRecordingTime(0);
   };
 
   const nextQuestion = () => {
@@ -180,14 +173,7 @@ const InterviewPage = () => {
     }
   };
 
-  const previousQuestion = () => {
-    if (currentQuestion > 0) {
-      setCurrentQuestion(currentQuestion - 1);
-      setRecordingTime(0);
-    }
-  };
-
-  const submitInterview = () => {
+  const submitInterview = async () => {
     const completedAnswers = hasRecorded.filter(Boolean).length;
     if (completedAnswers < questions.length) {
       toast({
@@ -198,24 +184,40 @@ const InterviewPage = () => {
       return;
     }
 
-    // Store interview data
-    const interviewData = {
-      candidateId: location.state?.candidateId || 'TEMP_ID',
-      completedAt: new Date().toISOString(),
-      answers: recordedVideos.length,
-      questions: questions.map(q => q.text)
-    };
-    
-    localStorage.setItem('interviewData', JSON.stringify(interviewData));
-    
-    toast({
-      title: "Interview completed! 🎉",
-      description: "Your answers are being processed...",
-    });
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append("candidate_id", candidate?.candidateId || "");
+      recordedVideos.forEach((video, idx) => {
+        if (video) formData.append("videos[]", video, `answer${idx + 1}.mp4`);
+      });
 
-    setTimeout(() => {
-      navigate('/results');
-    }, 2000);
+      const response = await fetch("http://127.0.0.1:5001/evaluate_answers", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error("Evaluation failed");
+
+      toast({
+        title: "Interview submitted successfully! 🎉",
+        description: "Redirecting to your results...",
+      });
+
+      // Add a small delay before navigation for better UX
+      setTimeout(() => {
+        navigate("/results");
+      }, 1500);
+
+    } catch (error) {
+      toast({
+        title: "Submission failed",
+        description: "Please try again later",
+        variant: "destructive"
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -231,6 +233,17 @@ const InterviewPage = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 text-white p-4">
+      {/* Loading Overlay */}
+      {isSubmitting && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <h2 className="text-2xl font-semibold mb-2">Submitting Your Interview</h2>
+            <p className="text-gray-400">Please wait while we process your responses...</p>
+          </div>
+        </div>
+      )}
+
       <div className="container mx-auto max-w-6xl py-8">
         {/* Header */}
         <div className="text-center mb-8 animate-fade-in">
@@ -283,17 +296,7 @@ const InterviewPage = () => {
               </div>
               
               {/* Navigation Buttons */}
-              <div className="flex justify-between">
-                <Button
-                  onClick={previousQuestion}
-                  disabled={currentQuestion === 0}
-                  variant="outline"
-                  className="border-gray-600 text-gray-300 hover:bg-gray-700"
-                >
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Previous
-                </Button>
-                
+              <div className="flex justify-end">
                 <Button
                   onClick={nextQuestion}
                   disabled={currentQuestion === questions.length - 1 || !hasRecorded[currentQuestion]}
@@ -326,21 +329,23 @@ const InterviewPage = () => {
               <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden relative">
                 {permissionsGranted ? (
                   <>
-                    {/* Live camera feed */}
-                    {!hasRecorded[currentQuestion] && (
+                    {/* Live camera feed - show when not recorded or during recording */}
+                    {(!hasRecorded[currentQuestion] || isRecording) && (
                       <video
                         ref={videoRef}
                         autoPlay
-                        muted
+                        playsInline
+                        muted={!isRecording} // Only mute when not recording
                         className="w-full h-full object-cover"
                       />
                     )}
                     
-                    {/* Preview of recorded video */}
-                    {hasRecorded[currentQuestion] && previewUrls[currentQuestion] && (
+                    {/* Preview of recorded video - only show when recorded and not recording */}
+                    {hasRecorded[currentQuestion] && !isRecording && previewUrls[currentQuestion] && (
                       <video
                         src={previewUrls[currentQuestion]}
                         controls
+                        playsInline
                         className="w-full h-full object-cover bg-black"
                       />
                     )}
@@ -394,25 +399,19 @@ const InterviewPage = () => {
                 )}
 
                 {hasRecorded[currentQuestion] && !isRecording && (
-                  <div className="flex items-center space-x-4">
-                    <div className="flex items-center text-green-400 bg-green-500/20 px-4 py-2 rounded-full">
-                      <CheckCircle className="w-5 h-5 mr-2" />
-                      <span className="font-semibold">Recorded Successfully</span>
-                    </div>
-                    <Button
-                      onClick={retakeRecording}
-                      variant="outline"
-                      className="border-gray-600 text-gray-300 hover:bg-gray-700"
-                    >
-                      <RotateCcw className="w-4 h-4 mr-2" />
-                      Retake
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={nextQuestion}
+                    disabled={currentQuestion === questions.length - 1}
+                    className="bg-blue-500 hover:bg-blue-600 text-white"
+                  >
+                    Next Question
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
                 )}
               </div>
 
               {/* Status Message */}
-              {!hasRecorded[currentQuestion] && permissionsGranted && (
+              {!hasRecorded[currentQuestion] && permissionsGranted && !isRecording && (
                 <div className="text-center p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
                   <p className="text-yellow-400 font-medium">
                     📹 Record your answer to proceed to the next question
@@ -432,13 +431,23 @@ const InterviewPage = () => {
             </div>
             <Button
               onClick={submitInterview}
+              disabled={isSubmitting}
               size="lg"
               className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 
                 text-white px-12 py-4 text-lg font-semibold rounded-full transition-all duration-300 
-                hover:scale-105 hover:shadow-xl hover:shadow-green-500/25 group"
+                hover:scale-105 hover:shadow-xl hover:shadow-green-500/25 group disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <ArrowRight className="w-5 h-5 mr-2 group-hover:translate-x-1 transition-transform" />
-              Submit Interview & Get Results
+              {isSubmitting ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="w-5 h-5 mr-2 group-hover:translate-x-1 transition-transform" />
+                  Submit Interview & Get Results
+                </>
+              )}
             </Button>
           </div>
         )}

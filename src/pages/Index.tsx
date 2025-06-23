@@ -1,4 +1,3 @@
-
 import { Button } from "@/components/ui/button";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { useNavigate } from 'react-router-dom';
@@ -38,6 +37,14 @@ const Index = () => {
             <Sparkles className="w-6 h-6 mr-3 group-hover:animate-pulse" />
             Start Interview with AI
             <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-1 transition-transform" />
+          </Button>
+          {/* Dashboard Button */}
+          <Button
+            variant="outline"
+            onClick={() => navigate('/dashboard')}
+            className="mt-6 border-purple-500/50 text-purple-300 hover:bg-purple-500/10 px-12 py-6 text-xl font-semibold rounded-full transition-all duration-300 hover:scale-105"
+          >
+            View Candidate Dashboard
           </Button>
         </div>
       </div>

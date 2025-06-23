@@ -1,4 +1,3 @@
-
 import { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,6 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Upload, FileText, User, Mail, ArrowRight, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from 'react-router-dom';
+import { useInterview } from "@/context/InterviewContext";
 
 const UploadPage = () => {
   const [candidateData, setCandidateData] = useState({
@@ -21,6 +21,7 @@ const UploadPage = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { setCandidateData: setInterviewCandidateData, setQuestions } = useInterview();
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -58,12 +59,13 @@ const UploadPage = () => {
   };
 
   const generateCandidateId = () => {
-    return 'CAND_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5).toUpperCase();
+    // Generate a random 6-digit number
+    const randomNum = Math.floor(100000 + Math.random() * 900000);
+    return `cd_${randomNum}`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!candidateData.name || !candidateData.email || !file) {
       toast({
         title: "Missing information",
@@ -72,37 +74,48 @@ const UploadPage = () => {
       });
       return;
     }
-
     setUploading(true);
+    setUploadProgress(0);
     const candidateId = generateCandidateId();
-    
     try {
+      // Prepare form data for API
+      const formData = new FormData();
+      formData.append("candidate_id", candidateId);
+      formData.append("resume_file", file);
+      formData.append("name", candidateData.name);
+      formData.append("email", candidateData.email);
       // Simulate upload progress
       for (let i = 0; i <= 100; i += 10) {
         setUploadProgress(i);
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 30));
       }
-
-      // Store candidate data in localStorage (will be replaced with Supabase)
-      const candidateInfo = {
-        ...candidateData,
+      // Call API
+      const response = await fetch("http://127.0.0.1:5001/upload_resume", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) throw new Error("Upload failed");
+      const data = await response.json();
+      // Save candidate and questions in context
+      setInterviewCandidateData({
         candidateId,
-        resumeFile: file.name,
-        uploadedAt: new Date().toISOString()
-      };
-      
-      localStorage.setItem('currentCandidate', JSON.stringify(candidateInfo));
-      
+        name: candidateData.name,
+        email: candidateData.email,
+      });
+      setQuestions(
+        (data.questions || []).map((q: string, idx: number) => ({
+          id: idx + 1,
+          text: q,
+          category: "General"
+        }))
+      );
       toast({
         title: "Upload successful! 🎉",
         description: "Your resume has been processed. Generating interview questions...",
       });
-
-      // Navigate to interview page after success
       setTimeout(() => {
-        navigate('/interview', { state: { candidateId } });
-      }, 1500);
-
+        navigate("/interview");
+      }, 1200);
     } catch (error) {
       toast({
         title: "Upload failed",

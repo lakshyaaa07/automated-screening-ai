@@ -1,10 +1,10 @@
-
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Trophy, Star, TrendingUp, Download, RotateCcw, Sparkles } from "lucide-react";
 import { useNavigate } from 'react-router-dom';
+import { useInterview } from "@/context/InterviewContext";
 
 interface FeedbackItem {
   question: string;
@@ -26,91 +26,44 @@ const ResultsPage = () => {
   const [animatedScore, setAnimatedScore] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
   const navigate = useNavigate();
-
-  // Mock evaluation data (in real app, this would come from backend)
-  const mockEvaluationData: EvaluationData = {
-    candidate_id: "CAND_123456",
-    feedback: [
-      {
-        question: "Tell me about yourself and your professional background.",
-        answer: "I'm a software developer with 3 years of experience...",
-        remark: "Great introduction with clear communication and relevant experience highlighted.",
-        improvement: "Consider mentioning specific technologies and quantifiable achievements.",
-        score: 8.5
-      },
-      {
-        question: "What interests you most about this role and our company?",
-        answer: "I'm excited about the opportunity to work with cutting-edge technology...",
-        remark: "Shows genuine interest and has done research about the company.",
-        improvement: "Could be more specific about how your skills align with company goals.",
-        score: 7.8
-      },
-      {
-        question: "Describe a challenging project you've worked on and how you overcame obstacles.",
-        answer: "I led a team project where we had to migrate a legacy system...",
-        remark: "Excellent example demonstrating leadership and problem-solving skills.",
-        improvement: "Great response! Consider mentioning the impact and lessons learned.",
-        score: 9.2
-      },
-      {
-        question: "How do you handle working under pressure and tight deadlines?",
-        answer: "I prioritize tasks, break them down into manageable chunks...",
-        remark: "Good strategies for pressure management with practical examples.",
-        improvement: "Could add examples of successful outcomes under pressure.",
-        score: 8.0
-      },
-      {
-        question: "Where do you see yourself in the next 5 years?",
-        answer: "I see myself growing into a senior technical role...",
-        remark: "Clear career vision that aligns with potential growth paths.",
-        improvement: "Consider mentioning how this role fits into your career trajectory.",
-        score: 7.5
-      },
-      {
-        question: "What are your greatest strengths and how do they apply to this position?",
-        answer: "My analytical thinking and attention to detail...",
-        remark: "Well-articulated strengths with relevant examples.",
-        improvement: "Perfect response! Consider adding how these strengths benefit teams.",
-        score: 8.8
-      },
-      {
-        question: "Do you have any questions about the role or company culture?",
-        answer: "I'd like to know more about the team structure and collaboration...",
-        remark: "Thoughtful questions showing genuine interest in the role.",
-        improvement: "Great engagement! Shows you're thinking about fit and contribution.",
-        score: 8.3
-      }
-    ],
-    final_score: 8.3
-  };
+  const { candidate } = useInterview();
 
   useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      setEvaluationData(mockEvaluationData);
-      setLoading(false);
-      
-      // Animate final score
-      let current = 0;
-      const target = mockEvaluationData.final_score;
-      const increment = target / 100;
-      
-      const timer = setInterval(() => {
-        current += increment;
-        if (current >= target) {
-          current = target;
-          clearInterval(timer);
-          
-          // Show confetti if score is high
-          if (target >= 7.0) {
-            setShowConfetti(true);
-            setTimeout(() => setShowConfetti(false), 3000);
+    const fetchResults = async () => {
+      if (!candidate?.candidateId) return;
+      setLoading(true);
+      try {
+        const response = await fetch(`http://127.0.0.1:5001/interview_results/${candidate.candidateId}`);
+        if (!response.ok) throw new Error("Failed to fetch results");
+        const data = await response.json();
+        // TEMP: Override final_score for testing congratulatory effect
+        data.final_score = 9.0; // Remove or comment out after testing
+        setEvaluationData(data);
+        // Animate final score
+        let current = 0;
+        const target = data.final_score;
+        const increment = target / 100;
+        const timer = setInterval(() => {
+          current += increment;
+          if (current >= target) {
+            current = target;
+            clearInterval(timer);
+            if (target >= 7.0) {
+              setShowConfetti(true);
+              setTimeout(() => setShowConfetti(false), 3000);
+            }
           }
-        }
-        setAnimatedScore(current);
-      }, 20);
-    }, 2000);
-  }, []);
+          setAnimatedScore(current);
+        }, 20);
+      } catch (error) {
+        setEvaluationData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchResults();
+    // eslint-disable-next-line
+  }, [candidate?.candidateId]);
 
   const getScoreColor = (score: number) => {
     if (score >= 8.5) return "text-green-400";
@@ -202,21 +155,6 @@ const ResultsPage = () => {
                 <span className="text-lg font-semibold">Congratulations! Strong Performance</span>
               </div>
             )}
-
-            <div className="flex justify-center space-x-4">
-              <Button 
-                onClick={() => navigate('/upload')}
-                variant="outline"
-                className="border-gray-600 text-gray-300 hover:bg-gray-700"
-              >
-                <RotateCcw className="w-4 h-4 mr-2" />
-                Retake Interview
-              </Button>
-              <Button className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
-                <Download className="w-4 h-4 mr-2" />
-                Download Report
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
@@ -268,7 +206,7 @@ const ResultsPage = () => {
           ))}
         </div>
 
-        {/* Next Steps */}
+        {/* Next Steps
         <Card className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 border-purple-500/20 mt-8">
           <CardContent className="p-6 text-center">
             <h3 className="text-xl font-bold text-white mb-4">What's Next?</h3>
@@ -287,7 +225,7 @@ const ResultsPage = () => {
               </Button>
             </div>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
     </div>
   );
